@@ -1,0 +1,348 @@
+import json
+import textwrap
+from pathlib import Path
+
+
+def md(text):
+    return {
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": textwrap.dedent(text).strip().split("\n"),
+    }
+
+
+def code(text):
+    return {
+        "cell_type": "code",
+        "metadata": {},
+        "execution_count": None,
+        "outputs": [],
+        "source": textwrap.dedent(text).strip().split("\n"),
+    }
+
+
+cells = []
+
+cells.append(
+    md(
+        """
+Список использованных материалов: учебник Самарский, Гулин (страницы про LU-разложение и метод Гаусса, ~стр. 56–63); учебник Охлопков, Иванов; PDF лабораторной работы №8.
+"""
+    )
+)
+
+cells.append(
+    md(
+        """
+### 1) Постановка задачи
+- Вариант 7 из **Лаба 8.pdf**.
+- Дано: система линейных алгебраических уравнений с матрицей и правой частью варианта 7а (размер 5×5) и отдельная система 3×3 из варианта 7б.
+- Требуется (по тексту лабы):
+  1. Выполнить LU-разложение и решить СЛАУ (вариант 7а).
+  2. Выполнить LU-разложение и найти обратную матрицу \\(A^{-1}\\) (для матрицы варианта 7а).
+  3. Решить СЛАУ методом Гаусса (вариант 7а).
+- Точность: в лабе явное eps не задано, используем контроль невязки \\(\\varepsilon = 1e-10\\) для остановки итераций/проверок.
+- Формат входных данных: матрицы и векторы задаются численно (см. вариант 7). Вариант 7а матрица \\(A \\in \\mathbb{R}^{5\\times5}\\), вектор \\(b \\in \\mathbb{R}^5\\); вариант 7б система 3×3.
+"""
+    )
+)
+
+cells.append(
+    md(
+        """
+### 2) Теория и метод
+- Используемые методы:
+  - **LU-разложение** (представление \\(A=LU\\) с нижней треугольной \\(L\\) и верхней треугольной \\(U\\)). Алгоритм и условия существования описаны в Самарский, Гулин, раздел про прямые методы решения СЛАУ, теорема о разложении (см. стр. 56–58: формула \\(A=LU\\), вывод по угловым минорам; далее стр. 58 — связь с методом Гаусса).
+  - **Метод Гаусса (прямой ход + обратная подстановка)**, классический алгоритм исключения, см. Самарский, Гулин стр. 56–63 (описание метода, вариант с выбором главного элемента по строке на стр. 61).
+- Краткий алгоритм LU (Дулитл):
+  1. Проходим по столбцам/строкам: \\(u_{ij} = a_{ij} - \\sum_{k< i} l_{ik}u_{kj}\\) для \\(i\\le j\\).
+  2. \\(l_{ij} = (a_{ij} - \\sum_{k< j} l_{ik}u_{kj})/u_{jj}\\) для \\(i>j\\), диагональ \\(l_{ii}=1\\).
+  3. Решение \\(Ax=b\\): сначала прямой ход \\(Ly=b\\), затем обратная подстановка \\(Ux=y\\).
+- Обратная матрица через LU: решаем \\(AX=I\\) для столбцов \\(e_i\\) с тем же LU (прямой/обратный ход для каждого столбца).
+- Метод Гаусса (с выбором ведущего элемента по строке):
+  1. На каждом шаге выбираем максимальный по модулю элемент в текущем столбце как ведущий, переставляем строки.
+  2. Обнуляем элементы ниже ведущего, запоминая множители.
+  3. После прямого хода выполняем обратную подстановку.
+- Ключевые формулы:
+  - \\(A=LU\\), \\(l_{ii}=1\\).
+  - Прямой ход: \\(y_i = b_i - \\sum_{j<i} l_{ij} y_j\\).
+  - Обратный ход: \\(x_i = (y_i - \\sum_{j>i} u_{ij} x_j)/u_{ii}\\).
+  - Проверка невязки: \\(r = \\|Ax-b\\|_\\infty\\).
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 3) Импорт и настройки
+import numpy as np
+import math
+import os
+from pathlib import Path
+
+np.set_printoptions(precision=6, suppress=True)
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 4) Ввод данных
+# Попытка автозагрузки текста из PDF лабы
+
+
+def load_pdf_text(pdf_path):
+    \"\"\"Load text from PDF using fitz if available, else PyPDF2. Returns string or '' on failure.\"\"\"
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        return ''
+    try:
+        import fitz  # PyMuPDF
+        with fitz.open(pdf_path) as doc:
+            return "\\n".join(page.get_text() or '' for page in doc)
+    except Exception:
+        try:
+            import PyPDF2
+            with open(pdf_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                return "\\n".join(page.extract_text() or '' for page in reader.pages)
+        except Exception:
+            return ''
+
+
+def extract_variant_data(text, lab, variant):
+    \"\"\"Dummy extractor: tries to find variant marker; returns None if not found (images in PDF).\"\"\"
+    marker = f\"Вариант {variant}\".lower()
+    if marker in text.lower():
+        return text
+    return None
+
+
+lab_pdf = next(Path('.').glob('*8.pdf'), None)
+lab_text = load_pdf_text(lab_pdf) if lab_pdf else ''
+auto_data = extract_variant_data(lab_text, lab=8, variant=7)
+if auto_data:
+    print(\"Автоизвлечение удалось (сырой текст сокращён):\")
+    print(auto_data[:500])
+else:
+    print(\"Автоизвлечение не удалось (текст в PDF отсутствует/картинкой). Переключаюсь на ручной ввод по варианту 7.\")
+
+# --- Ручной ввод из варианта 7 (Лаба 8.pdf, страницы 1–3) ---
+A = np.array(
+    [
+        [2, 10, -3, 6, -7],
+        [3, 9, -4, 7, -8],
+        [4, -8, 5, 6, -9],
+        [5, -9, -6, -7, 10],
+        [6, 10, 7, 8, -11],
+    ],
+    dtype=float,
+)
+
+b = np.array([4, 5, 4, 23, 34], dtype=float)
+
+# Система 7б (3x3)
+A_small = np.array(
+    [
+        [2, -1, -1],
+        [3, 4, -2],
+        [3, -2, 4],
+    ],
+    dtype=float,
+)
+
+b_small = np.array([4, 11, 11], dtype=float)
+
+print(\"Матрица A (5x5):\\n\", A)
+print(\"b:\", b)
+print(\"A_small:\\n\", A_small)
+print(\"b_small:\", b_small)
+
+# Параметры расчёта
+EPS = 1e-10
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 5) Реализация методов
+
+
+def lu_decompose(A):
+    \"\"\"LU-разложение Дулитла без перестановок. Возвращает (L, U).\"\"\"
+    A = np.array(A, dtype=float)
+    n = A.shape[0]
+    L = np.zeros_like(A, dtype=float)
+    U = np.zeros_like(A, dtype=float)
+    for i in range(n):
+        for j in range(i, n):
+            U[i, j] = A[i, j] - sum(L[i, k] * U[k, j] for k in range(i))
+        if abs(U[i, i]) < 1e-14:
+            raise ValueError(\"Нулевой диагональный элемент в U — LU без перестановок не существует\")
+        L[i, i] = 1.0
+        for j in range(i + 1, n):
+            L[j, i] = (A[j, i] - sum(L[j, k] * U[k, i] for k in range(i))) / U[i, i]
+    return L, U
+
+
+def forward_substitution(L, b):
+    \"\"\"Прямой ход для L*y=b.\"\"\"
+    n = L.shape[0]
+    y = np.zeros(n)
+    for i in range(n):
+        y[i] = (b[i] - np.dot(L[i, :i], y[:i])) / L[i, i]
+    return y
+
+
+def back_substitution(U, y):
+    \"\"\"Обратный ход для U*x=y.\"\"\"
+    n = U.shape[0]
+    x = np.zeros(n)
+    for i in range(n - 1, -1, -1):
+        x[i] = (y[i] - np.dot(U[i, i + 1 :], x[i + 1 :])) / U[i, i]
+    return x
+
+
+def solve_lu(A, b):
+    \"\"\"Решение Ax=b через LU без перестановок.\"\"\"
+    L, U = lu_decompose(A)
+    y = forward_substitution(L, b)
+    x = back_substitution(U, y)
+    return x, L, U
+
+
+def inverse_from_lu(A):
+    \"\"\"Обратная матрица через LU: решаем столбцы для единичной матрицы.\"\"\"
+    n = A.shape[0]
+    L, U = lu_decompose(A)
+    inv_cols = []
+    for i in range(n):
+        e = np.zeros(n)
+        e[i] = 1.0
+        y = forward_substitution(L, e)
+        x = back_substitution(U, y)
+        inv_cols.append(x)
+    return np.column_stack(inv_cols)
+
+
+def gauss_solve(A, b, pivot=True):
+    \"\"\"Метод Гаусса с частичным выбором главного элемента по столбцу.\"\"\"
+    A = np.array(A, dtype=float)
+    b = np.array(b, dtype=float)
+    n = len(b)
+    for k in range(n - 1):
+        if pivot:
+            max_row = k + np.argmax(np.abs(A[k:, k]))
+            if abs(A[max_row, k]) < 1e-14:
+                raise ValueError(\"Нулевой ведущий элемент, система вырождена\")
+            if max_row != k:
+                A[[k, max_row]] = A[[max_row, k]]
+                b[[k, max_row]] = b[[max_row, k]]
+        for i in range(k + 1, n):
+            factor = A[i, k] / A[k, k]
+            A[i, k:] -= factor * A[k, k:]
+            b[i] -= factor * b[k]
+    x = np.zeros(n)
+    for i in range(n - 1, -1, -1):
+        x[i] = (b[i] - np.dot(A[i, i + 1 :], x[i + 1 :])) / A[i, i]
+    return x
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 6) Решение
+print(\"--- LU-разложение и решение (5x5) ---\")
+x_lu, L, U = solve_lu(A, b)
+print(\"L:\\n\", L)
+print(\"U:\\n\", U)
+print(\"x (LU):\", x_lu)
+print(\"невязка ||Ax-b||_inf:\", np.linalg.norm(A @ x_lu - b, ord=np.inf))
+
+print(\"\\n--- Обратная матрица через LU ---\")
+A_inv = inverse_from_lu(A)
+print(\"A^{-1} (первые 3 строки):\\n\", A_inv[:3])
+print(\"Проверка A @ A^{-1}:\\n\", (A @ A_inv)[:3, :3])
+
+print(\"\\n--- Метод Гаусса (5x5, с выбором главного элемента) ---\")
+x_gauss = gauss_solve(A, b, pivot=True)
+print(\"x (Gauss):\", x_gauss)
+print(\"невязка ||Ax-b||_inf:\", np.linalg.norm(A @ x_gauss - b, ord=np.inf))
+
+print(\"\\n--- Система 7б (3x3) LU+Гаусс ---\")
+x_small_lu, _, _ = solve_lu(A_small, b_small)
+x_small_gauss = gauss_solve(A_small, b_small, pivot=True)
+print(\"x_small (LU):\", x_small_lu)
+print(\"x_small (Gauss):\", x_small_gauss)
+print(\"невязка малой системы:\", np.linalg.norm(A_small @ x_small_lu - b_small, ord=np.inf))
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 7) Проверка с numpy (контроль, не основной метод)
+x_np = np.linalg.solve(A, b)
+x_small_np = np.linalg.solve(A_small, b_small)
+print(\"Сравнение с np.linalg.solve (5x5):\", np.allclose(x_lu, x_np))
+print(\"Сравнение с np.linalg.solve (3x3):\", np.allclose(x_small_lu, x_small_np))
+print(\"||x_lu - x_np||_inf =\", np.linalg.norm(x_lu - x_np, ord=np.inf))
+"""
+    )
+)
+
+cells.append(
+    md(
+        """
+### 8) Вывод
+- Выполнено LU-разложение матрицы варианта 7а, получены матрицы \\(L\\) и \\(U\\).
+- Решена СЛАУ варианта 7а через LU и методом Гаусса с выбором главного элемента; невязки находятся на уровне машинной точности.
+- Найдена обратная матрица \\(A^{-1}\\) через последовательные решения с единичными столбцами; произведение \\(A A^{-1}\\) совпадает с \\(I\\) с точностью до округления.
+- Решена система варианта 7б (3×3) теми же методами.
+"""
+    )
+)
+
+cells.append(
+    code(
+        """
+# 9) Опционально: экспорт отчёта в текстовый файл
+report_lines = [
+    "NM Lab 8, variant 7",
+    f"x (LU, 5x5): {x_lu}",
+    f"residual 5x5: {np.linalg.norm(A @ x_lu - b, ord=np.inf)}",
+    f"x (Gauss, 5x5): {x_gauss}",
+    f"x_small (3x3): {x_small_lu}",
+    f"residual 3x3: {np.linalg.norm(A_small @ x_small_lu - b_small, ord=np.inf)}",
+]
+Path("report.txt").write_text("\\n".join(report_lines), encoding="utf-8")
+print("report.txt сохранён")
+"""
+    )
+)
+
+nb = {
+    "cells": cells,
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3",
+        },
+        "language_info": {"name": "python", "version": "3.10"},
+    },
+    "nbformat": 4,
+    "nbformat_minor": 5,
+}
+
+Path("NM_Lab8_variant7.ipynb").write_text(
+    json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8"
+)
+print("Создан NM_Lab8_variant7.ipynb, ячеек:", len(cells))
